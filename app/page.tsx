@@ -3,6 +3,14 @@
 import { ReactNode, useEffect, useMemo, useState } from 'react';
 import { calculateFairSplit } from '@/lib/calc';
 
+type FormTextState = {
+  total: string;
+  people: string;
+  drinkers: string;
+  cups: string;
+  cupPrice: string;
+};
+
 type FormState = {
   total: number;
   people: number;
@@ -11,7 +19,7 @@ type FormState = {
   cupPrice: number;
 };
 
-const defaults: FormState = {
+const defaultsNum: FormState = {
   total: 30000,
   people: 6,
   drinkers: 3,
@@ -19,48 +27,85 @@ const defaults: FormState = {
   cupPrice: 500,
 };
 
+const defaultsText: FormTextState = {
+  total: String(defaultsNum.total),
+  people: String(defaultsNum.people),
+  drinkers: String(defaultsNum.drinkers),
+  cups: String(defaultsNum.cups),
+  cupPrice: String(defaultsNum.cupPrice),
+};
+
+// 0埋め/変な文字を避けるため、入力は「文字列」で持つ。
+// ただし digits 以外は除去（貼り付け対策）。
+function sanitizeDigits(value: string): string {
+  return value.replace(/[^\d]/g, '');
+}
+
+function parseIntOrZero(value: string): number {
+  if (!value) return 0;
+  const n = Number.parseInt(value, 10);
+  return Number.isFinite(n) ? n : 0;
+}
+
 export default function HomePage() {
-  const [form, setForm] = useState<FormState>(defaults);
+  const [formText, setFormText] = useState<FormTextState>(defaultsText);
   const [copied, setCopied] = useState(false);
 
+  // URL -> state 復元
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
 
-    const next: FormState = {
-      total: parseInt(params.get('total') ?? `${defaults.total}`, 10),
-      people: parseInt(params.get('people') ?? `${defaults.people}`, 10),
-      drinkers: parseInt(params.get('drinkers') ?? `${defaults.drinkers}`, 10),
-      cups: parseInt(params.get('cups') ?? `${defaults.cups}`, 10),
-      cupPrice: parseInt(params.get('price') ?? `${defaults.cupPrice}`, 10),
+    const next: FormTextState = {
+      total: sanitizeDigits(params.get('total') ?? defaultsText.total),
+      people: sanitizeDigits(params.get('people') ?? defaultsText.people),
+      drinkers: sanitizeDigits(params.get('drinkers') ?? defaultsText.drinkers),
+      cups: sanitizeDigits(params.get('cups') ?? defaultsText.cups),
+      cupPrice: sanitizeDigits(params.get('price') ?? defaultsText.cupPrice),
     };
 
-    if (Object.values(next).every((v) => Number.isFinite(v))) {
-      setForm(next);
-    }
+    setFormText(next);
   }, []);
 
+  // state -> URL 反映（空ならクエリから消す）
   useEffect(() => {
     const params = new URLSearchParams();
-    params.set('total', String(form.total));
-    params.set('people', String(form.people));
-    params.set('drinkers', String(form.drinkers));
-    params.set('cups', String(form.cups));
-    params.set('price', String(form.cupPrice));
 
-    const next = `${window.location.pathname}?${params.toString()}`;
+    const setOrDelete = (key: string, value: string) => {
+      if (value === '') params.delete(key);
+      else params.set(key, value);
+    };
+
+    setOrDelete('total', formText.total);
+    setOrDelete('people', formText.people);
+    setOrDelete('drinkers', formText.drinkers);
+    setOrDelete('cups', formText.cups);
+    setOrDelete('price', formText.cupPrice);
+
+    const query = params.toString();
+    const next = query ? `${window.location.pathname}?${query}` : window.location.pathname;
     window.history.replaceState({}, '', next);
-  }, [form]);
+  }, [formText]);
+
+  // 計算用に number 化（計算ロジックは number 前提のまま）
+  const formNum: FormState = useMemo(
+    () => ({
+      total: parseIntOrZero(formText.total),
+      people: parseIntOrZero(formText.people),
+      drinkers: parseIntOrZero(formText.drinkers),
+      cups: parseIntOrZero(formText.cups),
+      cupPrice: parseIntOrZero(formText.cupPrice),
+    }),
+    [formText]
+  );
 
   const result = useMemo(() => {
     try {
-      return calculateFairSplit(form);
+      return calculateFairSplit(formNum);
     } catch (error) {
-      if (error instanceof Error) {
-        return { error: error.message };
-      }
+      if (error instanceof Error) return { error: error.message };
       return { error: '入力値エラーです。' };
     }
-  }, [form]);
+  }, [formNum]);
 
   async function onCopyUrl() {
     await navigator.clipboard.writeText(window.location.href);
@@ -68,12 +113,9 @@ export default function HomePage() {
     window.setTimeout(() => setCopied(false), 1600);
   }
 
-  function updateField<K extends keyof FormState>(key: K, value: string) {
-    const n = Number.parseInt(value, 10);
-    setForm((prev) => ({
-      ...prev,
-      [key]: Number.isNaN(n) ? 0 : n,
-    }));
+  function updateField<K extends keyof FormTextState>(key: K, value: string) {
+    const sanitized = sanitizeDigits(value);
+    setFormText((prev) => ({ ...prev, [key]: sanitized }));
   }
 
   return (
@@ -83,23 +125,58 @@ export default function HomePage() {
 
       <section className="panel">
         <Field label="合計金額 total (円)">
-          <input type="number" inputMode="numeric" value={form.total} onChange={(e) => updateField('total', e.target.value)} />
+          <input
+            type="text"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            value={formText.total}
+            onChange={(e) => updateField('total', e.target.value)}
+            placeholder="例: 30000"
+          />
         </Field>
 
         <Field label="総人数 people">
-          <input type="number" inputMode="numeric" value={form.people} onChange={(e) => updateField('people', e.target.value)} />
+          <input
+            type="text"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            value={formText.people}
+            onChange={(e) => updateField('people', e.target.value)}
+            placeholder="例: 6"
+          />
         </Field>
 
         <Field label="酔っパライダー drinkers">
-          <input type="number" inputMode="numeric" value={form.drinkers} onChange={(e) => updateField('drinkers', e.target.value)} />
+          <input
+            type="text"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            value={formText.drinkers}
+            onChange={(e) => updateField('drinkers', e.target.value)}
+            placeholder="例: 3"
+          />
         </Field>
 
         <Field label="杯数 cups per drinker">
-          <input type="number" inputMode="numeric" value={form.cups} onChange={(e) => updateField('cups', e.target.value)} />
+          <input
+            type="text"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            value={formText.cups}
+            onChange={(e) => updateField('cups', e.target.value)}
+            placeholder="例: 2"
+          />
         </Field>
 
         <Field label="1杯単価 cup price (円)">
-          <input type="number" inputMode="numeric" value={form.cupPrice} onChange={(e) => updateField('cupPrice', e.target.value)} />
+          <input
+            type="text"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            value={formText.cupPrice}
+            onChange={(e) => updateField('cupPrice', e.target.value)}
+            placeholder="例: 500"
+          />
         </Field>
       </section>
 
@@ -108,8 +185,12 @@ export default function HomePage() {
           <p className="error">⚠️ {result.error}</p>
         ) : (
           <>
-            <p className="resultLine">飲んでない人: <strong>{yen(result.nondrinkerPay)}円</strong></p>
-            <p className="resultLine">飲んだ人: <strong>{yen(result.drinkerPay)}円</strong></p>
+            <p className="resultLine">
+              飲んでない人: <strong>{yen(result.nondrinkerPay)}円</strong>
+            </p>
+            <p className="resultLine">
+              飲んだ人: <strong>{yen(result.drinkerPay)}円</strong>
+            </p>
             {result.drinkerPayPlusOneCount > 0 && (
               <p className="subtle">※ 飲んだ人のうち {result.drinkerPayPlusOneCount} 人は +1円（合計調整）</p>
             )}
