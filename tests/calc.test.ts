@@ -1,24 +1,59 @@
 import { describe, expect, test } from 'vitest';
-import { calculate } from '@/lib/calc';
+import { calculateFairSplit } from '@/lib/calc';
 
-describe('calculate', () => {
-  test('adds numbers', () => {
-    expect(calculate(2, 3, 'add')).toBe(5);
+describe('calculateFairSplit', () => {
+  test('calculates base fair split and keeps total matched', () => {
+    const result = calculateFairSplit({
+      total: 30000,
+      people: 6,
+      drinkers: 3,
+      cups: 6,
+      cupPrice: 500,
+    });
+
+    expect(result.nondrinkerPay).toBe(3500);
+    expect(result.drinkerPay).toBe(6500);
+    expect(result.drinkerPayPlusOneCount).toBe(0);
+    expect(result.totalCheck).toBe(30000);
   });
 
-  test('subtracts numbers', () => {
-    expect(calculate(7, 2, 'subtract')).toBe(5);
+  test('distributes rounding remainder to drinkers first', () => {
+    const result = calculateFairSplit({
+      total: 10001,
+      people: 4,
+      drinkers: 2,
+      cups: 1,
+      cupPrice: 500,
+    });
+
+    expect(result.nondrinkerPay).toBe(2250);
+    expect(result.drinkerPay).toBe(2750);
+    expect(result.drinkerPayPlusOneCount).toBe(1);
+    expect(result.totalCheck).toBe(10001);
   });
 
-  test('multiplies numbers', () => {
-    expect(calculate(4, 3, 'multiply')).toBe(12);
+  test('works when drinkers is zero', () => {
+    const result = calculateFairSplit({
+      total: 10000,
+      people: 3,
+      drinkers: 0,
+      cups: 0,
+      cupPrice: 500,
+    });
+
+    expect(result.nondrinkerPay).toBe(3333);
+    expect(result.totalCheck).toBe(10000);
   });
 
-  test('divides numbers', () => {
-    expect(calculate(12, 4, 'divide')).toBe(3);
-  });
-
-  test('throws on divide by zero', () => {
-    expect(() => calculate(5, 0, 'divide')).toThrow('Cannot divide by zero.');
+  test('validates invalid ranges', () => {
+    expect(() =>
+      calculateFairSplit({
+        total: 1000,
+        people: 3,
+        drinkers: 4,
+        cups: 1,
+        cupPrice: 500,
+      }),
+    ).toThrow('drinkers must be between 0 and people.');
   });
 });

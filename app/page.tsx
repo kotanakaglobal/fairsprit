@@ -1,98 +1,139 @@
 'use client';
 
-import { FormEvent, useMemo, useState } from 'react';
-import { calculate, Operation } from '@/lib/calc';
+import { ReactNode, useEffect, useMemo, useState } from 'react';
+import { calculateFairSplit } from '@/lib/calc';
 
-const operations: Array<{ label: string; value: Operation }> = [
-  { label: 'Add (+)', value: 'add' },
-  { label: 'Subtract (−)', value: 'subtract' },
-  { label: 'Multiply (×)', value: 'multiply' },
-  { label: 'Divide (÷)', value: 'divide' },
-];
+type FormState = {
+  total: number;
+  people: number;
+  drinkers: number;
+  cups: number;
+  cupPrice: number;
+};
+
+const defaults: FormState = {
+  total: 30000,
+  people: 6,
+  drinkers: 3,
+  cups: 6,
+  cupPrice: 500,
+};
 
 export default function HomePage() {
-  const [left, setLeft] = useState('');
-  const [right, setRight] = useState('');
-  const [operation, setOperation] = useState<Operation>('add');
-  const [submitted, setSubmitted] = useState(false);
+  const [form, setForm] = useState<FormState>(defaults);
+  const [copied, setCopied] = useState(false);
 
-  const parsedLeft = Number(left);
-  const parsedRight = Number(right);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+
+    const next: FormState = {
+      total: parseInt(params.get('total') ?? `${defaults.total}`, 10),
+      people: parseInt(params.get('people') ?? `${defaults.people}`, 10),
+      drinkers: parseInt(params.get('drinkers') ?? `${defaults.drinkers}`, 10),
+      cups: parseInt(params.get('cups') ?? `${defaults.cups}`, 10),
+      cupPrice: parseInt(params.get('price') ?? `${defaults.cupPrice}`, 10),
+    };
+
+    if (Object.values(next).every((v) => Number.isFinite(v))) {
+      setForm(next);
+    }
+  }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams();
+    params.set('total', String(form.total));
+    params.set('people', String(form.people));
+    params.set('drinkers', String(form.drinkers));
+    params.set('cups', String(form.cups));
+    params.set('price', String(form.cupPrice));
+
+    const next = `${window.location.pathname}?${params.toString()}`;
+    window.history.replaceState({}, '', next);
+  }, [form]);
 
   const result = useMemo(() => {
-    if (!submitted) {
-      return null;
-    }
-
-    if (!Number.isFinite(parsedLeft) || !Number.isFinite(parsedRight)) {
-      return 'Please enter valid numbers.';
-    }
-
     try {
-      return calculate(parsedLeft, parsedRight, operation).toString();
+      return calculateFairSplit(form);
     } catch (error) {
       if (error instanceof Error) {
-        return error.message;
+        return { error: error.message };
       }
-      return 'Unexpected error.';
+      return { error: '入力値エラーです。' };
     }
-  }, [operation, parsedLeft, parsedRight, submitted]);
+  }, [form]);
 
-  function onSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setSubmitted(true);
+  async function onCopyUrl() {
+    await navigator.clipboard.writeText(window.location.href);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1600);
+  }
+
+  function updateField<K extends keyof FormState>(key: K, value: string) {
+    const n = Number.parseInt(value, 10);
+    setForm((prev) => ({
+      ...prev,
+      [key]: Number.isNaN(n) ? 0 : n,
+    }));
   }
 
   return (
-    <main>
-      <h1>FairSprit Calculator</h1>
-      <p>Enter two numbers and choose an operation.</p>
+    <main className="container">
+      <h1>🍻 フェア割り勘</h1>
+      <p className="lead">飲んだ人だけ追加で払う、1分で終わる割り勘計算。</p>
 
-      <form className="card" onSubmit={onSubmit}>
-        <label htmlFor="left">First number</label>
-        <input
-          id="left"
-          inputMode="decimal"
-          value={left}
-          onChange={(event) => setLeft(event.target.value)}
-          placeholder="e.g. 12.5"
-        />
+      <section className="panel">
+        <Field label="合計金額 total (円)">
+          <input type="number" inputMode="numeric" value={form.total} onChange={(e) => updateField('total', e.target.value)} />
+        </Field>
 
-        <label htmlFor="operation" style={{ marginTop: '1rem' }}>
-          Operation
-        </label>
-        <select
-          id="operation"
-          value={operation}
-          onChange={(event) => setOperation(event.target.value as Operation)}
-        >
-          {operations.map((item) => (
-            <option key={item.value} value={item.value}>
-              {item.label}
-            </option>
-          ))}
-        </select>
+        <Field label="総人数 people">
+          <input type="number" inputMode="numeric" value={form.people} onChange={(e) => updateField('people', e.target.value)} />
+        </Field>
 
-        <label htmlFor="right" style={{ marginTop: '1rem' }}>
-          Second number
-        </label>
-        <input
-          id="right"
-          inputMode="decimal"
-          value={right}
-          onChange={(event) => setRight(event.target.value)}
-          placeholder="e.g. 3"
-        />
+        <Field label="酔っパライダー drinkers">
+          <input type="number" inputMode="numeric" value={form.drinkers} onChange={(e) => updateField('drinkers', e.target.value)} />
+        </Field>
 
-        <button type="submit" style={{ marginTop: '1rem' }}>
-          Calculate
-        </button>
-      </form>
+        <Field label="杯数 cups per drinker">
+          <input type="number" inputMode="numeric" value={form.cups} onChange={(e) => updateField('cups', e.target.value)} />
+        </Field>
 
-      <section className="card" aria-live="polite">
-        <h2>Result</h2>
-        <p className="result">{result ?? '—'}</p>
+        <Field label="1杯単価 cup price (円)">
+          <input type="number" inputMode="numeric" value={form.cupPrice} onChange={(e) => updateField('cupPrice', e.target.value)} />
+        </Field>
       </section>
+
+      <section className="panel resultPanel" aria-live="polite">
+        {'error' in result ? (
+          <p className="error">⚠️ {result.error}</p>
+        ) : (
+          <>
+            <p className="resultLine">飲んでない人: <strong>{yen(result.nondrinkerPay)}円</strong></p>
+            <p className="resultLine">飲んだ人: <strong>{yen(result.drinkerPay)}円</strong></p>
+            {result.drinkerPayPlusOneCount > 0 && (
+              <p className="subtle">※ 飲んだ人のうち {result.drinkerPayPlusOneCount} 人は +1円（合計調整）</p>
+            )}
+          </>
+        )}
+      </section>
+
+      <button className="copyBtn" type="button" onClick={onCopyUrl}>
+        共有URLをコピー
+      </button>
+      {copied && <p className="copied">コピーしました！</p>}
     </main>
   );
+}
+
+function Field({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <label className="field">
+      <span>{label}</span>
+      {children}
+    </label>
+  );
+}
+
+function yen(value: number): string {
+  return new Intl.NumberFormat('ja-JP').format(value);
 }
